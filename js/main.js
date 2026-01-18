@@ -3,9 +3,10 @@ import { physics } from './engine.js';
 
 // --- 1. 全局状态与防御性挂载 ---
 window.importComponent = async () => {
-    let fileName = prompt("请输入模块文件名 (如: Ball, Box, Rope):");
+    let fileName = prompt("请输入模块文件名 (如: Ball, Box):");
     if (!fileName) return;
-    if (fileName.endsWith('.js')) fileName = fileName.slice(0, -3);
+    // 过滤后缀，防止出现 Box.js.js 的情况
+    fileName = fileName.replace(/\.js$/, ''); 
     
     try {
         const module = await import(`./modules/${fileName}.js`);
@@ -13,14 +14,17 @@ window.importComponent = async () => {
         createSpawnButton(module.data.name, module.data, fileName);
     } catch (err) {
         alert("加载失败，请检查文件名大小写及路径");
-        console.error(err);
+        console.error("加载错误详情:", err);
     }
 };
 
 window.togglePlay = () => {
+    // 确保 physics.engine 已初始化
+    if (!physics.engine) return;
     const isPaused = physics.engine.gravity.y === 0;
     physics.setGravity(isPaused ? 1 : 0);
-    document.getElementById('playBtn').innerText = isPaused ? "停止演示" : "开始演示";
+    const playBtn = document.getElementById('playBtn');
+    if (playBtn) playBtn.innerText = isPaused ? "停止演示" : "开始演示";
 };
 
 // --- 2. 初始化吸附开关 ---
@@ -46,8 +50,9 @@ const inspector = document.getElementById('inspector');
 const propsList = document.getElementById('props-list');
 const container = document.getElementById('canvas-container');
 
-// 初始化引擎
-const { mc } = physics.init(container);
+// 初始化引擎并获取鼠标约束
+const physicsInstance = physics.init(container);
+const mc = physicsInstance ? physicsInstance.mc : null;
 initToolbarExtras();
 
 function createSpawnButton(label, moduleData, id) {
@@ -67,47 +72,45 @@ function createSpawnButton(label, moduleData, id) {
             physics.add(obj);
         }
     };
-    menu.appendChild(btn);
+    if (menu) menu.appendChild(btn);
 }
 
-// --- 4. 鼠标事件处理 (左键编辑，右键连线/悬挂) ---
-window.oncontextmenu = (e) => e.preventDefault(); // 禁用右键菜单
+// --- 4. 鼠标事件处理 ---
+if (mc) {
+    window.oncontextmenu = (e) => e.preventDefault(); 
 
-Matter.Events.on(mc, 'mousedown', (event) => {
-    const body = event.source.body;
-    const isRightClick = event.mouse.button === 2;
+    Matter.Events.on(mc, 'mousedown', (event) => {
+        const body = event.source.body;
+        const isRightClick = event.mouse.button === 2;
 
-    // 右键逻辑：连线与自动悬挂
-    if (isRightClick && body && !body.isStatic) {
-        if (!firstBody) {
-            firstBody = body;
-            body.render.strokeStyle = "#f1c40f";
-            body.render.lineWidth = 4;
-            // 2秒内未点第二个物体则自动悬挂
-            body.hangTimer = setTimeout(() => {
-                if (firstBody === body) autoHang(body);
-            }, 2000);
-        } else if (firstBody !== body) {
-            clearTimeout(firstBody.hangTimer);
-            if (connectionMode) {
-                physics.add(connectionMode.create(firstBody, body));
-            } else {
-                // 默认硬连接
-                physics.add(Matter.Constraint.create({ bodyA: firstBody, bodyB: body, stiffness: 0.5 }));
+        if (isRightClick && body && !body.isStatic) {
+            if (!firstBody) {
+                firstBody = body;
+                body.render.strokeStyle = "#f1c40f";
+                body.render.lineWidth = 4;
+                body.hangTimer = setTimeout(() => {
+                    if (firstBody === body) autoHang(body);
+                }, 2000);
+            } else if (firstBody !== body) {
+                clearTimeout(firstBody.hangTimer);
+                if (connectionMode) {
+                    physics.add(connectionMode.create(firstBody, body));
+                } else {
+                    physics.add(Matter.Constraint.create({ bodyA: firstBody, bodyB: body, stiffness: 0.5 }));
+                }
+                resetSelection();
             }
+            return;
+        }
+
+        if (body && !isRightClick) {
+            showInspector(body);
+        } else if (!body) {
+            if (inspector) inspector.style.display = 'none';
             resetSelection();
         }
-        return;
-    }
-
-    // 左键逻辑：属性查看
-    if (body && !isRightClick) {
-        showInspector(body);
-    } else if (!body) {
-        inspector.style.display = 'none';
-        resetSelection();
-    }
-});
+    });
+}
 
 function resetSelection() {
     if (firstBody) {
@@ -128,9 +131,9 @@ function autoHang(body) {
     resetSelection();
 }
 
-// --- 5. 属性编辑器 (支持尺寸缩放) ---
+// --- 5. 属性编辑器 ---
 function showInspector(target) {
-    if (!propsList) return;
+    if (!propsList || !inspector) return;
     propsList.innerHTML = '';
     inspector.style.display = 'block';
 
@@ -142,7 +145,7 @@ function showInspector(target) {
         
         const labelRow = `<div style="display:flex; justify-content:space-between">
                             <label>${config.label}</label>
-                            <span id="val-${key}">${target[key] || ''}</span>
+                            <span id="val-${key}">${target[key] !== undefined ? target[key] : ''}</span>
                           </div>`;
 
         if (config.type === "text") {
@@ -152,20 +155,26 @@ function showInspector(target) {
                 document.getElementById(`val-${key}`).innerText = e.target.value;
             };
         } else {
-            const currentVal = key === 'width' ? 80 : (key === 'height' ? 80 : target[key]);
+            // 初始值适配：如果没设置缩放基准，默认为 80
+            const currentVal = (key === 'width') ? (target.prev_width || 80) : 
+                               (key === 'height') ? (target.prev_height || 80) : target[key];
+            
             item.innerHTML = `${labelRow}<input type="range" min="${config.min}" max="${config.max}" step="${config.step}" value="${currentVal}" style="width:100%">`;
             
             item.querySelector('input').oninput = (e) => {
                 const val = parseFloat(e.target.value);
-                document.getElementById(`val-${key}`).innerText = val;
+                const valDisplay = document.getElementById(`val-${key}`);
+                if (valDisplay) valDisplay.innerText = val;
                 
                 if (config.isScale) {
-                    // 处理尺寸缩放：Matter.js 需先缩放回1，再缩放至目标比例
-                    const prev = target[`prev_${key}`] || (key === 'width' ? 80 : 80);
-                    const scaleFactor = val / prev;
+                    const prevKey = `prev_${key}`;
+                    const prevVal = target[prevKey] || 80;
+                    const scaleFactor = val / prevVal;
+                    
                     if (key === 'width') Matter.Body.scale(target, scaleFactor, 1);
                     else Matter.Body.scale(target, 1, scaleFactor);
-                    target[`prev_${key}`] = val;
+                    
+                    target[prevKey] = val;
                 } else {
                     target[key] = val;
                 }
@@ -174,11 +183,3 @@ function showInspector(target) {
         propsList.appendChild(item);
     });
 }
-
-// 加载初始零件
-import('./modules/registry.js').then(m => {
-    Object.keys(m.Components).forEach(name => {
-        const comp = m.Components[name];
-        createSpawnButton(name, comp.data || { name }, name);
-    });
-}).catch(() => console.log("等待手动导入组件"));
