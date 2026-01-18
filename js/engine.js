@@ -3,12 +3,17 @@ export const physics = {
     engine: null,
     render: null,
     runner: null,
-    snapEnabled: false, // 吸附功能开关
+    snapEnabled: false,
 
     init(container) {
+        // 显式检查 Matter 是否存在
+        if (typeof Matter === 'undefined') {
+            console.error("Matter.js 未加载，请检查 index.html 中的脚本引入");
+            return;
+        }
+
         const { Engine, Render, Runner, Composite, Bodies, Mouse, MouseConstraint } = Matter;
 
-        // 创建引擎，增加迭代次数以减少抖动
         this.engine = Engine.create({
             positionIterations: 10,
             velocityIterations: 10
@@ -17,7 +22,6 @@ export const physics = {
         const width = container.clientWidth;
         const height = container.clientHeight;
 
-        // 创建渲染器
         this.render = Render.create({
             element: container,
             engine: this.engine,
@@ -29,13 +33,13 @@ export const physics = {
             }
         });
 
-        // 核心需求：防抖边界墙壁 (厚度100px)
+        // 边界墙壁
         const wallOptions = { isStatic: true, label: 'wall', render: { fillStyle: '#bdc3c7' } };
         const walls = [
-            Bodies.rectangle(width/2, height + 50, width, 100, wallOptions), // 地
-            Bodies.rectangle(width/2, -50, width, 100, wallOptions),         // 天
-            Bodies.rectangle(-50, height/2, 100, height, wallOptions),        // 左
-            Bodies.rectangle(width + 50, height/2, 100, height, wallOptions)   // 右
+            Bodies.rectangle(width/2, height + 50, width, 100, wallOptions),
+            Bodies.rectangle(width/2, -50, width, 100, wallOptions),
+            Bodies.rectangle(-50, height/2, 100, height, wallOptions),
+            Bodies.rectangle(width + 50, height/2, 100, height, wallOptions)
         ];
         Composite.add(this.engine.world, walls);
 
@@ -43,7 +47,6 @@ export const physics = {
         this.runner = Runner.create();
         Runner.run(this.runner, this.engine);
 
-        // 鼠标交互
         const mouse = Mouse.create(this.render.canvas);
         const mc = MouseConstraint.create(this.engine, {
             mouse: mouse,
@@ -51,16 +54,12 @@ export const physics = {
         });
         Composite.add(this.engine.world, mc);
 
-        // 监听鼠标拖拽实现“吸附”
         this.setupSnapping(mc);
-        
-        // 开启受力分析可视化
         this.setupVisualizer();
 
         return { engine: this.engine, render: this.render, mc: mc };
     },
 
-    // 核心需求：吸附功能 (对齐到 20px 网格)
     setupSnapping(mc) {
         Matter.Events.on(mc, 'drag', (event) => {
             if (this.snapEnabled && event.source.body) {
@@ -73,8 +72,8 @@ export const physics = {
         });
     },
 
-    // 核心需求：受力分析绘制
     setupVisualizer() {
+        // 使用箭头函数确保 this 指向 physics 对象本身
         Matter.Events.on(this.render, 'afterRender', () => {
             const context = this.render.context;
             const bodies = Matter.Composite.allBodies(this.engine.world);
@@ -85,17 +84,20 @@ export const physics = {
                 const { x, y } = body.position;
                 const g = this.engine.gravity;
 
-                // 计算合力 (外力 + 重力)
+                // 计算合力
                 const fX = body.force.x;
                 const fY = body.force.y + (body.mass * g.y * g.scale);
 
                 // 绘制名称
                 context.fillStyle = "#2c3e50";
-                context.font = "12px Arial";
+                context.font = "bold 12px Arial";
                 context.textAlign = "center";
-                context.fillText(body.customName || `ID: ${body.id}`, x, y - (body.circleRadius || 25) - 15);
+                
+                // 自动适配圆形和矩形的高度高度
+                const offset = body.circleRadius || (body.bounds.max.y - body.bounds.min.y) / 2 || 25;
+                context.fillText(body.customName || `ID: ${body.id}`, x, y - offset - 15);
 
-                // 绘制合力箭头 (红色)
+                // 绘制合力箭头
                 this.drawArrow(context, x, y, fX * 50000, fY * 50000, "#e74c3c", "F");
             });
         });
@@ -106,19 +108,21 @@ export const physics = {
         const tx = x + vx, ty = y + vy;
         ctx.strokeStyle = color;
         ctx.fillStyle = color;
+        ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(x, y);
         ctx.lineTo(tx, ty);
         ctx.stroke();
-        // 箭头小三角
+
         const head = 8, angle = Math.atan2(ty - y, tx - x);
         ctx.beginPath();
         ctx.moveTo(tx, ty);
         ctx.lineTo(tx - head * Math.cos(angle - Math.PI/7), ty - head * Math.sin(angle - Math.PI/7));
         ctx.lineTo(tx - head * Math.cos(angle + Math.PI/7), ty - head * Math.sin(angle + Math.PI/7));
         ctx.fill();
+        ctx.fillText(label, tx + 5, ty + 5);
     },
 
-    add(obj) { Composite.add(this.engine.world, obj); },
+    add(obj) { Matter.Composite.add(this.engine.world, obj); },
     setGravity(v) { this.engine.gravity.y = v; }
 };
