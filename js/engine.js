@@ -1,16 +1,20 @@
 // js/main.js
 import { physics } from './engine.js';
 
+// 将函数挂载到 window，确保 HTML 的 onclick 能找到它们
 window.importComponent = async () => {
-    let fileName = prompt("输入组件名:");
+    let fileName = prompt("输入组件名 (如 Ball, Box):");
     if (!fileName) return;
     try {
         const module = await import(`./modules/${fileName.replace('.js','')}.js`);
         createSpawnButton(module.data.name, module.data, fileName);
-    } catch (e) { alert("加载失败"); }
+    } catch (e) { 
+        alert("模块加载失败，请检查文件名"); 
+    }
 };
 
 window.togglePlay = () => {
+    if (!physics.engine) return;
     const isPaused = physics.engine.gravity.y === 0;
     if (isPaused) {
         Matter.Composite.allBodies(physics.engine.world).forEach(body => physics.applyImpulse(body));
@@ -24,31 +28,30 @@ const inspector = document.getElementById('inspector');
 const propsList = document.getElementById('props-list');
 const container = document.getElementById('canvas-container');
 
+// 初始化引擎并获取 mc
 const physicsInstance = physics.init(container);
 
 function createSpawnButton(label, moduleData, id) {
-    if (document.getElementById(`btn-${id}`)) return;
+    if (!menu || document.getElementById(`btn-${id}`)) return;
     const btn = document.createElement('button');
     btn.className = 'tool-btn';
+    btn.id = `btn-${id}`;
     btn.innerText = "📦 " + label;
     btn.onclick = () => {
         const obj = moduleData.create(container.clientWidth / 2, 150);
-        
-        // --- 初始化物理属性 ---
         obj.isGhost = false;
         obj.startThrust = 0;
         obj.thrustAngle = 270;
         obj.constantAccel = 0;
         obj.accelAngle = 0;
-
         obj.editableProps = {
             ...obj.editableProps,
             mass: { label: "⚖️ 质量 (kg)", min: 0.1, max: 100, step: 0.1 },
-            isGhost: { label: "👻 无质量体积模式", type: "toggle" },
-            startThrust: { label: "🚀 启动推力 (N)", min: 0, max: 200, step: 1 },
-            thrustAngle: { label: "🚀 推力角度 (°)", min: 0, max: 360, step: 5 },
+            isGhost: { label: "👻 幽灵模式", type: "toggle" },
+            startThrust: { label: "🚀 启动推力(N)", min: 0, max: 200, step: 1 },
+            thrustAngle: { label: "🚀 推力方向(°)", min: 0, max: 360, step: 5 },
             constantAccel: { label: "🌀 持续加速度", min: 0, max: 50, step: 0.5 },
-            accelAngle: { label: "🌀 加速方向 (°)", min: 0, max: 360, step: 5 }
+            accelAngle: { label: "🌀 加速方向(°)", min: 0, max: 360, step: 5 }
         };
         physics.add(obj);
     };
@@ -56,6 +59,7 @@ function createSpawnButton(label, moduleData, id) {
 }
 
 function showInspector(target) {
+    if (!propsList || !inspector) return;
     propsList.innerHTML = '';
     inspector.style.display = 'block';
     
@@ -66,13 +70,12 @@ function showInspector(target) {
         
         if (config.type === "toggle") {
             item.innerHTML = `
-                <label style="display:flex; justify-content:space-between; cursor:pointer; padding:5px 0">
+                <label style="display:flex; justify-content:space-between; cursor:pointer">
                     ${config.label} <input type="checkbox" ${target[key] ? 'checked' : ''}>
                 </label>`;
             item.querySelector('input').onchange = (e) => {
                 target[key] = e.target.checked;
                 target.render.opacity = target[key] ? 0.4 : 1;
-                // 幽灵模式下物体不受力也不被力推
                 Matter.Body.setStatic(target, target[key]); 
             };
         } else {
@@ -101,9 +104,17 @@ function showInspector(target) {
     });
 }
 
-Matter.Events.on(physicsInstance.mc, 'mousedown', (e) => {
-    if (e.source.body) showInspector(e.source.body);
-    else inspector.style.display = 'none';
-});
+// 确保鼠标约束正确绑定
+if (physicsInstance && physicsInstance.mc) {
+    Matter.Events.on(physicsInstance.mc, 'mousedown', (e) => {
+        if (e.source.body) showInspector(e.source.body);
+        else inspector.style.display = 'none';
+    });
+}
 
-['Box', 'Ball'].forEach(n => import(`./modules/${n}.js`).then(m => createSpawnButton(m.data.name, m.data, n)).catch(()=>{}));
+// 自动加载默认组件
+['Box', 'Ball'].forEach(n => {
+    import(`./modules/${n}.js`)
+        .then(m => createSpawnButton(m.data.name, m.data, n))
+        .catch(() => console.log(n + " 待手动加载"));
+});
