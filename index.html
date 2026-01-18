@@ -22,13 +22,12 @@
 <body>
     <div id="sidebar">
         <h3>零件库</h3>
-        <button class="tool-btn" style="background:#16a085" onclick="importComponent()">
-            📥 导入新组件 (.js)
-        </button>
-        <hr style="width:100%; border:0.5px solid #444">
-    
-        <div id="component-menu">
-            </div>
+        <button class="tool-btn" onclick="importComponent()">📥 导入组件</button>
+        <hr>
+        <button class="tool-btn" style="background:#2980b9" onclick="saveScene()">💾 保存预设</button>
+        <button class="tool-btn" style="background:#8e44ad" onclick="loadScene()">📂 读取预设</button>
+        <div id="component-menu"></div>
+    </div>
 
     <div id="inspector" style="display:none; ...">
         <h4 style="margin-top:0">⚙️ 属性编辑</h4>
