@@ -112,6 +112,53 @@ Matter.Events.on(mc, 'mousedown', (event) => {
     }
 });
 
+Matter.Events.on(render, 'afterRender', () => {
+    const context = render.context;
+    const bodies = Matter.Composite.allBodies(physics.engine.world);
+
+    bodies.forEach(body => {
+        if (body.isStatic || body.label === 'Rectangle Body') return; // 跳过墙壁
+
+        const { x, y } = body.position;
+        
+        // --- 绘制重力/合力箭头 ---
+        drawVector(context, x, y, body.force.x, body.force.y + body.mass * physics.engine.gravity.y, "#e74c3c", "合力");
+        
+        // --- 绘制速度箭头 (可选) ---
+        drawVector(context, x, y, body.velocity.x * 0.5, body.velocity.y * 0.5, "#3498db", "速度");
+
+        // --- 绘制物体名称 ---
+        context.fillStyle = "white";
+        context.fillText(body.customName || "", x - 20, y - body.circleRadius - 10);
+    });
+});
+
+// 通用箭头绘制函数
+function drawVector(ctx, fromX, fromY, vecX, vecY, color, label) {
+    const scale = 500; // 放大受力显示效果
+    const toX = fromX + vecX * scale;
+    const toY = fromY + vecY * scale;
+    
+    if (Math.abs(vecX) < 0.01 && Math.abs(vecY) < 0.01) return; // 力太小时不绘制
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(fromX, fromY);
+    ctx.lineTo(toX, toY);
+    ctx.stroke();
+    
+    // 绘制小箭头尖端
+    const headlen = 10;
+    const angle = Math.atan2(toY - fromY, toX - fromX);
+    ctx.beginPath();
+    ctx.moveTo(toX, toY);
+    ctx.lineTo(toX - headlen * Math.cos(angle - Math.PI / 6), toY - headlen * Math.sin(angle - Math.PI / 6));
+    ctx.moveTo(toX, toY);
+    ctx.lineTo(toX - headlen * Math.cos(angle + Math.PI / 6), toY - headlen * Math.sin(angle + Math.PI / 6));
+    ctx.stroke();
+}
+
 function showInspector(target) {
     if (!propsList || !inspector) return;
     propsList.innerHTML = ''; 
