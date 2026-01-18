@@ -1,26 +1,34 @@
 // js/modules/Ball.js
-const { Bodies } = Matter;
-
 export const data = {
     name: "小球",
-    type: "body", // 标识这是一个单体物理对象
     create: (x, y) => {
-        const ball = Bodies.circle(x, y, 30, {
-            friction: 0.1,      // 摩擦力
-            restitution: 0.8,   // 弹性系数 (0-1，越高越弹)
-            density: 0.002,     // 密度
+        const { Bodies } = Matter;
+
+        // 创建初始半径为 40 的圆
+        const ball = Bodies.circle(x, y, 40, {
+            friction: 0.1,
+            restitution: 0.8, // 默认弹性稍高
             render: {
-                fillStyle: '#3498db',    // 填充颜色
-                strokeStyle: '#2980b9',  // 边框颜色
-                lineWidth: 3
+                fillStyle: '#3498db',
+                strokeStyle: '#2980b9',
+                lineWidth: 2
             }
         });
 
-        // 绑定可编辑属性，供 main.js 的属性编辑器读取
+        // 核心属性设置
+        ball.customName = "小球 " + (Math.floor(Math.random() * 100));
+        
+        // 关键：为“改变大小”设置初始半径基准值
+        // 圆形缩放只需要一个维度，但为了兼容 main.js 的 width 逻辑，我们存为 prev_radius
+        ball.prev_radius = 40;
+
+        // 设置属性面板配置
         ball.editableProps = {
-            friction: { label: "摩擦力", min: 0, max: 1, step: 0.01 },
-            restitution: { label: "弹性", min: 0, max: 1.2, step: 0.01 },
-            density: { label: "密度", min: 0.001, max: 0.1, step: 0.001 }
+            customName: { label: "物体名称", type: "text" },
+            // 对于圆，我们通常调整半径，这里标记为 isRadiusScale
+            radius: { label: "半径 (px)", min: 10, max: 300, step: 5, isRadiusScale: true },
+            friction: { label: "摩擦力", min: 0, max: 1, step: 0.05 },
+            restitution: { label: "弹性", min: 0, max: 1.2, step: 0.1 }
         };
 
         return ball;
