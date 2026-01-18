@@ -4,11 +4,11 @@ export const physics = {
     render: null,
     runner: null,
     snapEnabled: false,
+    pendingForces: new Map(), // 存储 body.id -> {x, y}
 
     init(container) {
-        // 显式检查 Matter 是否存在
         if (typeof Matter === 'undefined') {
-            console.error("Matter.js 未加载，请检查 index.html 中的脚本引入");
+            console.error("Matter.js 未加载");
             return;
         }
 
@@ -33,7 +33,6 @@ export const physics = {
             }
         });
 
-        // 边界墙壁
         const wallOptions = { isStatic: true, label: 'wall', render: { fillStyle: '#bdc3c7' } };
         const walls = [
             Bodies.rectangle(width/2, height + 50, width, 100, wallOptions),
@@ -60,6 +59,16 @@ export const physics = {
         return { engine: this.engine, render: this.render, mc: mc };
     },
 
+    // 施加推力接口
+    applyImpulse(body, vector) {
+        if (!body || !vector) return;
+        // 缩放系数 0.002 适合大多数物理模拟
+        Matter.Body.applyForce(body, body.position, {
+            x: vector.x * 0.002,
+            y: vector.y * 0.002
+        });
+    },
+
     setupSnapping(mc) {
         Matter.Events.on(mc, 'drag', (event) => {
             if (this.snapEnabled && event.source.body) {
@@ -73,38 +82,39 @@ export const physics = {
     },
 
     setupVisualizer() {
-        // 使用箭头函数确保 this 指向 physics 对象本身
         Matter.Events.on(this.render, 'afterRender', () => {
             const context = this.render.context;
             const bodies = Matter.Composite.allBodies(this.engine.world);
+            const g = this.engine.gravity;
             
             bodies.forEach(body => {
                 if (body.isStatic || body.label === 'wall') return;
 
                 const { x, y } = body.position;
-                const g = this.engine.gravity;
+                const offset = body.circleRadius || (body.bounds.max.y - body.bounds.min.y) / 2 || 25;
 
-                // 计算合力
-                const fX = body.force.x;
-                const fY = body.force.y + (body.mass * g.y * g.scale);
-
-                // 绘制名称
+                // 1. 绘制名称
                 context.fillStyle = "#2c3e50";
                 context.font = "bold 12px Arial";
                 context.textAlign = "center";
-                
-                // 自动适配圆形和矩形的高度高度
-                const offset = body.circleRadius || (body.bounds.max.y - body.bounds.min.y) / 2 || 25;
                 context.fillText(body.customName || `ID: ${body.id}`, x, y - offset - 15);
 
-                // 绘制合力箭头
+                // 2. 绘制实时合力箭头 (红色)
+                const fX = body.force.x;
+                const fY = body.force.y + (body.mass * g.y * g.scale);
                 this.drawArrow(context, x, y, fX * 50000, fY * 50000, "#e74c3c", "F");
+
+                // 3. 绘制预设启动推力箭头 (黄色)
+                const pending = this.pendingForces.get(body.id);
+                if (pending) {
+                    this.drawArrow(context, x, y, pending.x * 2, pending.y * 2, "#f1c40f", "启动推力");
+                }
             });
         });
     },
 
     drawArrow(ctx, x, y, vx, vy, color, label) {
-        if (Math.abs(vx) < 1 && Math.abs(vy) < 1) return;
+        if (Math.abs(vx) < 2 && Math.abs(vy) < 2) return;
         const tx = x + vx, ty = y + vy;
         ctx.strokeStyle = color;
         ctx.fillStyle = color;
