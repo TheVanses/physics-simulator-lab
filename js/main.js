@@ -5,7 +5,6 @@ import { physics } from './engine.js';
 window.importComponent = async () => {
     let fileName = prompt("请输入模块文件名 (如: Ball, Box):");
     if (!fileName) return;
-    // 过滤后缀，防止出现 Box.js.js 的情况
     fileName = fileName.replace(/\.js$/, ''); 
     
     try {
@@ -19,7 +18,6 @@ window.importComponent = async () => {
 };
 
 window.togglePlay = () => {
-    // 确保 physics.engine 已初始化
     if (!physics.engine) return;
     const isPaused = physics.engine.gravity.y === 0;
     physics.setGravity(isPaused ? 1 : 0);
@@ -29,17 +27,22 @@ window.togglePlay = () => {
 
 // --- 2. 初始化吸附开关 ---
 function initToolbarExtras() {
-    const toolbar = document.querySelector('.toolbar') || document.body;
+    const toolbar = document.querySelector('.toolbar') || document.body; // 兼容性调整
     const snapBtn = document.createElement('button');
     snapBtn.className = 'tool-btn';
-    snapBtn.style.marginLeft = '10px';
+    // 防止按钮挤在最左边，加一点样式
+    snapBtn.style.position = 'absolute';
+    snapBtn.style.top = '10px';
+    snapBtn.style.left = '220px'; // 放在侧边栏右侧
+    snapBtn.style.zIndex = '1000';
+    
     snapBtn.innerText = "网格吸附: 关";
     snapBtn.onclick = () => {
         physics.snapEnabled = !physics.snapEnabled;
         snapBtn.innerText = `网格吸附: ${physics.snapEnabled ? "开" : "关"}`;
-        snapBtn.style.borderColor = physics.snapEnabled ? "#2ecc71" : "#ccc";
+        snapBtn.style.background = physics.snapEnabled ? "#2ecc71" : "#34495e";
     };
-    toolbar.appendChild(snapBtn);
+    document.body.appendChild(snapBtn);
 }
 
 // --- 3. 核心交互逻辑 ---
@@ -50,16 +53,19 @@ const inspector = document.getElementById('inspector');
 const propsList = document.getElementById('props-list');
 const container = document.getElementById('canvas-container');
 
-// 初始化引擎并获取鼠标约束
+// 初始化引擎
 const physicsInstance = physics.init(container);
 const mc = physicsInstance ? physicsInstance.mc : null;
 initToolbarExtras();
 
 function createSpawnButton(label, moduleData, id) {
+    // 防止重复创建按钮
     if (document.getElementById(`btn-${id}`)) return;
+    
     const btn = document.createElement('button');
     btn.id = `btn-${id}`;
     btn.className = 'tool-btn';
+    btn.style.marginTop = "5px"; // 增加一点间距
     btn.innerText = (moduleData.type === "connection" ? "🔗 " : "📦 ") + label;
     
     btn.onclick = () => {
@@ -68,6 +74,7 @@ function createSpawnButton(label, moduleData, id) {
             firstBody = null;
             alert("进入连线模式：请右键依次点击两个物体");
         } else {
+            // 生成在画布中心偏上位置
             const obj = moduleData.create(container.clientWidth / 2, 100);
             physics.add(obj);
         }
@@ -131,7 +138,7 @@ function autoHang(body) {
     resetSelection();
 }
 
-// --- 5. 属性编辑器 ---
+// --- 5. 属性编辑器 (修复了小球缩放) ---
 function showInspector(target) {
     if (!propsList || !inspector) return;
     propsList.innerHTML = '';
@@ -155,10 +162,13 @@ function showInspector(target) {
                 document.getElementById(`val-${key}`).innerText = e.target.value;
             };
         } else {
-            // 初始值适配：如果没设置缩放基准，默认为 80
-            const currentVal = (key === 'width') ? (target.prev_width || 80) : 
-                               (key === 'height') ? (target.prev_height || 80) : target[key];
-            
+            // 智能获取当前值
+            let currentVal;
+            if (key === 'width') currentVal = target.prev_width || 80;
+            else if (key === 'height') currentVal = target.prev_height || 80;
+            else if (key === 'radius') currentVal = target.prev_radius || 40;
+            else currentVal = target[key];
+
             item.innerHTML = `${labelRow}<input type="range" min="${config.min}" max="${config.max}" step="${config.step}" value="${currentVal}" style="width:100%">`;
             
             item.querySelector('input').oninput = (e) => {
@@ -166,16 +176,25 @@ function showInspector(target) {
                 const valDisplay = document.getElementById(`val-${key}`);
                 if (valDisplay) valDisplay.innerText = val;
                 
+                // --- 修复的核心：分情况处理缩放 ---
                 if (config.isScale) {
+                    // 处理矩形 (Box)
                     const prevKey = `prev_${key}`;
                     const prevVal = target[prevKey] || 80;
                     const scaleFactor = val / prevVal;
-                    
                     if (key === 'width') Matter.Body.scale(target, scaleFactor, 1);
                     else Matter.Body.scale(target, 1, scaleFactor);
-                    
                     target[prevKey] = val;
-                } else {
+                } 
+                else if (config.isRadiusScale) {
+                    // 处理圆形 (Ball) - 你之前缺失了这部分
+                    const prevVal = target.prev_radius || 40;
+                    const scaleFactor = val / prevVal;
+                    Matter.Body.scale(target, scaleFactor, scaleFactor);
+                    target.prev_radius = val;
+                } 
+                else {
+                    // 普通属性 (摩擦力等)
                     target[key] = val;
                 }
             };
@@ -183,3 +202,17 @@ function showInspector(target) {
         propsList.appendChild(item);
     });
 }
+
+// --- 6. 自动加载初始组件 (这部分你之前漏了) ---
+// 这段代码会让页面打开时，自动去加载 Box.js 和 Ball.js
+const defaultComponents = ['Box', 'Ball'];
+
+defaultComponents.forEach(name => {
+    import(`./modules/${name}.js`)
+        .then(module => {
+            if(module.data) {
+                createSpawnButton(module.data.name, module.data, name);
+            }
+        })
+        .catch(err => console.log(`等待手动导入: ${name}`)); 
+});
