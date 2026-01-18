@@ -4,23 +4,34 @@ const { Bodies } = Matter;
 export const data = {
     name: "木块",
     create: (x, y) => {
-        const b = Bodies.rectangle(x, y, 60, 60, {
-            friction: 0.5,
-            restitution: 0.2,
-            mass: 2,
-            render: { fillStyle: '#e67e22', strokeStyle: '#d35400', lineWidth: 2 }
+        // 创建初始尺寸为 80x80 的木块
+        const box = Bodies.rectangle(x, y, 80, 80, {
+            friction: 0.1,
+            restitution: 0.5,
+            render: {
+                fillStyle: '#e67e22',
+                strokeStyle: '#d35400',
+                lineWidth: 2
+            }
         });
 
-        ball.customName = "实验球 A";
+        // 核心需求 3: 物体初始命名
+        box.customName = "木块 " + (Math.floor(Math.random() * 100));
 
-        // 绑定可编辑属性，供 main.js 的 inspector 读取
-        b.editableProps = {
+        // 核心需求 4: 定义属性编辑器配置
+        box.editableProps = {
             customName: { label: "物体名称", type: "text" },
-            friction: { label: "摩擦系数", min: 0, max: 1, step: 0.05 },
-            restitution: { label: "弹性系数", min: 0, max: 1.2, step: 0.05 },
-            mass: { label: "质量 (kg)", min: 0.5, max: 50, step: 0.5 }
+            // isScale: true 配合 main.js 实现尺寸实时缩放
+            width: { label: "宽度 (px)", min: 20, max: 500, step: 10, isScale: true },
+            height: { label: "高度 (px)", min: 20, max: 500, step: 10, isScale: true },
+            friction: { label: "摩擦力", min: 0, max: 1, step: 0.05 },
+            restitution: { label: "弹性", min: 0, max: 1.2, step: 0.1 }
         };
 
-        return b;
+        // 用于记录缩放比例的辅助变量 (配合 main.js 的缩放算法)
+        box.prev_width = 80;
+        box.prev_height = 80;
+
+        return box;
     }
 };
