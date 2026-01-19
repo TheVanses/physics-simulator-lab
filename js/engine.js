@@ -1,73 +1,90 @@
-// js/engine.js
-export const physics = {
-    engine: null,
-    render: null,
-    runner: null,
-    pendingForces: new Map(),
+// js/main.js
+import { physics } from './engine.js';
 
-    init(container) {
-        if (typeof Matter === 'undefined') return;
-        const { Engine, Render, Runner, Composite, Mouse, MouseConstraint, Events } = Matter;
-
-        this.engine = Engine.create();
-        this.render = Render.create({
-            element: container,
-            engine: this.engine,
-            options: { width: container.clientWidth, height: container.clientHeight, wireframes: false, background: '#f8f9fa' }
-        });
-
-        const wallOptions = { isStatic: true, label: 'wall', render: { fillStyle: '#bdc3c7' } };
-        Composite.add(this.engine.world, [
-            Matter.Bodies.rectangle(container.clientWidth/2, container.clientHeight + 25, container.clientWidth, 50, wallOptions),
-            Matter.Bodies.rectangle(container.clientWidth/2, -25, container.clientWidth, 50, wallOptions),
-            Matter.Bodies.rectangle(-25, container.clientHeight/2, 50, container.clientHeight, wallOptions),
-            Matter.Bodies.rectangle(container.clientWidth + 25, container.clientHeight/2, 50, container.clientHeight, wallOptions)
-        ]);
-
-        Render.run(this.render);
-        this.runner = Runner.create();
-        Runner.run(this.runner, this.engine);
-
-        const mc = MouseConstraint.create(this.engine, {
-            mouse: Mouse.create(this.render.canvas),
-            constraint: { stiffness: 0.2, render: { visible: false } }
-        });
-        Composite.add(this.engine.world, mc);
-
-        this.setupVisualizer();
-        return { engine: this.engine, mc };
-    },
-
-    setupVisualizer() {
-        Matter.Events.on(this.render, 'afterRender', () => {
-            const ctx = this.render.context;
-            const bodies = Matter.Composite.allBodies(this.engine.world);
-            
-            bodies.forEach(body => {
-                if (body.isStatic || body.label === 'wall') return;
-                const { x, y } = body.position;
-
-                // 1. 速度计
-                const speed = Math.sqrt(body.velocity.x**2 + body.velocity.y**2).toFixed(1);
-                ctx.fillStyle = "#2ecc71";
-                ctx.font = "bold 11px monospace";
-                ctx.fillText(`${speed} m/s`, x, y + 25);
-
-                // 2. 导出顶点 (非圆形)
-                if (!body.circleRadius && body.vertices) {
-                    ctx.fillStyle = "rgba(231, 76, 60, 0.8)";
-                    body.vertices.forEach((v, i) => {
-                        ctx.beginPath();
-                        ctx.arc(v.x, v.y, 3, 0, Math.PI*2);
-                        ctx.fill();
-                        ctx.font = "9px Arial";
-                        ctx.fillText(`(${Math.round(v.x)},${Math.round(v.y)})`, v.x + 5, v.y - 5);
-                    });
-                }
-            });
-        });
-    },
-
-    setGravity(v) { this.engine.gravity.y = v; },
-    add(obj) { Matter.Composite.add(this.engine.world, obj); }
+// --- 全局挂载函数 ---
+window.importComponent = async () => {
+    let fileName = prompt("输入组件名 (如 Box):");
+    if (!fileName) return;
+    try {
+        const module = await import(`./modules/${fileName}.js`);
+        addSpawnButton(module.data, fileName);
+    } catch (e) { alert("加载失败"); }
 };
+
+window.saveScene = () => {
+    const bodies = Matter.Composite.allBodies(physics.engine.world)
+        .filter(b => !b.isStatic && b.sourceModule)
+        .map(b => ({
+            module: b.sourceModule, x: b.position.x, y: b.position.y,
+            mass: b.mass, angle: b.angle, name: b.customName,
+            pw: b.prev_width, ph: b.prev_height, pr: b.prev_radius
+        }));
+    localStorage.setItem('lab_data', JSON.stringify(bodies));
+    alert("场景已保存");
+};
+
+window.loadScene = async () => {
+    const data = localStorage.getItem('lab_data');
+    if (!data) return;
+    const items = JSON.parse(data);
+    for (const item of items) {
+        const mod = await import(`./modules/${item.module}.js`);
+        const obj = mod.data.create(item.x, item.y);
+        obj.sourceModule = item.module;
+        // 恢复缩放逻辑
+        if (item.pw) { Matter.Body.scale(obj, item.pw / obj.prev_width, item.ph / obj.prev_height); obj.prev_width = item.pw; }
+        physics.add(obj);
+    }
+};
+
+function addSpawnButton(data, fileName) {
+    const btn = document.createElement('button');
+    btn.className = 'tool-btn';
+    btn.innerText = (data.type === 'construct' ? '🏗️ ' : '🔧 ') + data.name;
+    btn.onclick = () => {
+        const obj = data.create(400, 200);
+        obj.sourceModule = fileName;
+        // 如果是构造件，补充质量与物理标记
+        if (data.type === 'construct') {
+            obj.editableProps = {
+                customName: { label: "📛 物体名称", type: "text" },
+                ...obj.editableProps,
+                mass: { label: "⚖️ 质量", min: 0.1, max: 100, step: 0.1 }
+            };
+        }
+        physics.add(obj);
+    };
+    document.getElementById('component-menu').appendChild(btn);
+}
+
+// 属性编辑器修复：支持 type 判断，防止名称变进度条
+function showInspector(target) {
+    const list = document.getElementById('props-list');
+    list.innerHTML = '';
+    document.getElementById('inspector').style.display = 'block';
+
+    Object.keys(target.editableProps || {}).forEach(key => {
+        const config = target.editableProps[key];
+        const item = document.createElement('div');
+        item.className = 'prop-item';
+
+        if (config.type === "text") {
+            item.innerHTML = `<label>${config.label}</label><input type="text" value="${target[key] || ''}" style="width:100%">`;
+            item.querySelector('input').onchange = (e) => { target[key] = e.target.value; };
+        } else {
+            let val = target[key] || 0;
+            item.innerHTML = `<label>${config.label}: <span id="v-${key}">${val}</span></label>
+                              <input type="range" min="${config.min}" max="${config.max}" step="${config.step}" value="${val}" style="width:100%">`;
+            item.querySelector('input').oninput = (e) => {
+                const v = parseFloat(e.target.value);
+                document.getElementById(`v-${key}`).innerText = v;
+                if (key === 'mass') Matter.Body.setMass(target, v);
+                else target[key] = v;
+            };
+        }
+        list.appendChild(item);
+    });
+}
+
+const pi = physics.init(document.getElementById('canvas-container'));
+Matter.Events.on(pi.mc, 'mousedown', (e) => { if (e.source.body) showInspector(e.source.body); });
