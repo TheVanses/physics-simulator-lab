@@ -9,8 +9,6 @@ export const physics = {
         const { Engine, Render, Runner, Composite, Bodies, Mouse, MouseConstraint } = Matter;
 
         this.engine = Engine.create();
-
-        // 初始化渲染器
         this.render = Render.create({
             element: container,
             engine: this.engine,
@@ -22,7 +20,6 @@ export const physics = {
             }
         });
 
-        // 创建世界边界
         const wallOptions = { isStatic: true, label: 'wall', render: { fillStyle: '#bdc3c7' } };
         Composite.add(this.engine.world, [
             Bodies.rectangle(container.clientWidth / 2, container.clientHeight + 25, container.clientWidth, 50, wallOptions),
@@ -35,7 +32,6 @@ export const physics = {
         this.runner = Runner.create();
         Runner.run(this.runner, this.engine);
 
-        // 添加鼠标控制
         const mouseConstraint = MouseConstraint.create(this.engine, {
             mouse: Mouse.create(this.render.canvas),
             constraint: { stiffness: 0.2, render: { visible: false } }
@@ -46,7 +42,6 @@ export const physics = {
         return { engine: this.engine, mc: mouseConstraint };
     },
 
-    // 实时绘制：速度计与顶点坐标导出
     setupVisualizer() {
         Matter.Events.on(this.render, 'afterRender', () => {
             const ctx = this.render.context;
@@ -56,14 +51,14 @@ export const physics = {
                 if (body.isStatic || body.label === 'wall') return;
                 const { x, y } = body.position;
 
-                // 绘制速度文本
+                // 速度显示
                 const speed = Math.sqrt(body.velocity.x ** 2 + body.velocity.y ** 2).toFixed(1);
                 ctx.fillStyle = "#2ecc71";
                 ctx.font = "bold 11px monospace";
                 ctx.fillText(`${speed} m/s`, x, y + 30);
 
-                // 导出非圆形顶点坐标
-                if (!body.circleRadius && body.vertices.length > 0) {
+                // 顶点坐标显示 (核心功能)
+                if (!body.circleRadius && body.vertices) {
                     ctx.fillStyle = "rgba(231, 76, 60, 0.8)";
                     body.vertices.forEach(v => {
                         ctx.beginPath();
