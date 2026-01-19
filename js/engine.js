@@ -12,6 +12,60 @@ window.importComponent = async () => {
 };
 
 window.saveScene = () => {
+    // 过滤掉静态墙壁，只保存具有 sourceModule 属性的物体
+    const bodies = Matter.Composite.allBodies(physics.engine.world)
+        .filter(b => !b.isStatic && b.sourceModule)
+        .map(b => ({
+            module: b.sourceModule, // 记录来源模块名以便后续加载
+            x: b.position.x,
+            y: b.position.y,
+            mass: b.mass,
+            angle: b.angle,
+            name: b.customName,
+            pw: b.prev_width, // 保存宽度缩放基准
+            ph: b.prev_height, // 保存高度缩放基准
+            pr: b.prev_radius  // 保存半径缩放基准
+        }));
+
+    localStorage.setItem('lab_preset', JSON.stringify(bodies)); // 存储至浏览器本地缓存
+    alert("预设保存成功！");
+};
+
+// 读取预设功能
+window.loadScene = async () => {
+    const data = localStorage.getItem('lab_preset');
+    if (!data) return alert("未发现已保存的预设");
+
+    const items = JSON.parse(data);
+    for (const item of items) {
+        try {
+            // 根据保存的模块名动态导入
+            const mod = await import(`./modules/${item.module}.js`);
+            const obj = mod.data.create(item.x, item.y);
+
+            obj.sourceModule = item.module;
+            obj.customName = item.name;
+
+            // 恢复物体的物理形态与尺寸
+            if (item.pw && obj.prev_width) {
+                const ratioW = item.pw / obj.prev_width;
+                const ratioH = item.ph / obj.prev_height;
+                Matter.Body.scale(obj, ratioW, ratioH);
+                obj.prev_width = item.pw;
+                obj.prev_height = item.ph;
+            }
+
+            Matter.Body.setAngle(obj, item.angle);
+            Matter.Body.setMass(obj, item.mass);
+
+            physics.add(obj); // 添加到物理世界
+        } catch (e) {
+            console.error("加载组件失败:", e);
+        }
+    }
+};
+
+window.saveScene = () => {
     const bodies = Matter.Composite.allBodies(physics.engine.world)
         .filter(b => !b.isStatic && b.sourceModule)
         .map(b => ({
